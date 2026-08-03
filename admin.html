@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HR Admin — Career Portal</title>
+  <meta name="description" content="HR Admin panel for managing assessments and candidates.">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div class="layout">
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <h2>🏢 Career Portal</h2>
+      <p>HR Admin Panel</p>
+    </div>
+    <div class="sidebar-user">
+      <strong id="admin-user-name">Loading…</strong>
+      HR Administrator
+    </div>
+    <nav>
+      <a href="#/dashboard"   data-page="dashboard">📊 Dashboard</a>
+      <a href="#/assessments" data-page="assessments">📋 Assessments</a>
+    </nav>
+    <div class="sidebar-bottom">
+      <button class="btn btn-outline w-full" onclick="Auth.logout()" style="font-size:13px;">Logout</button>
+    </div>
+  </aside>
+
+  <!-- ── Main Content ── -->
+  <main class="main-content">
+    <div id="content">
+      <div class="flex-center" style="height:60vh;color:#9ca3af;">Loading…</div>
+    </div>
+  </main>
+</div>
+
+<!-- Foundation scripts -->
+<script src="js/config.js"></script>
+<script src="js/db.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/seed.js"></script>
+
+<!-- Admin page scripts -->
+<script src="js/admin/dashboard.js"></script>
+<script src="js/admin/assessments.js"></script>
+<script src="js/admin/assessment-form.js"></script>
+<script src="js/admin/candidate-profile.js"></script>
+
+<!-- App router (must be last) -->
+<script src="js/admin/app.js"></script>
+</body>
+</html>
