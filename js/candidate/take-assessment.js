@@ -25,39 +25,79 @@ let _ta = {
 
 const TA_STORAGE_KEY = 'pa_ta_answers_';
 
-function renderTakeAssessment(caId, user) {
-  // Load data
-  const ca = DB.getById(DB.TABLES.CANDIDATE_ASSESSMENTS, caId);
-  if (!ca || ca.candidateId !== user.candidateId) {
-    document.getElementById('c-content').innerHTML = '<div class="alert alert-error">Assessment not found or not assigned to you.</div>';
-    return;
-  }
-  if (ca.completed) {
-    document.getElementById('c-content').innerHTML = `
-      <div class="alert alert-info">This assessment has already been submitted.</div>
-      <a href="#/portal" class="btn btn-primary mt-12">← Back to Portal</a>`;
-    return;
-  }
+async function renderTakeAssessment(caId, user) {
+  try {
+    // 1. Fetch assigned assessments to verify ownership and status
+    const allCAs = await API.get(`/candidates/${user.candidateId}/assessments`);
+    const ca = allCAs.find(a => a.invitationId === caId);
 
-  const assessment = DB.getById(DB.TABLES.ASSESSMENTS, ca.assessmentId);
-  const questions  = DB.getWhere(DB.TABLES.QUESTIONS, q => q.assessmentId === ca.assessmentId)
-                       .sort((a,b) => (a.order||0) - (b.order||0));
+    if (!ca || ca.candidateId !== user.candidateId) {
+      document.getElementById('c-content').innerHTML = '<div class="alert alert-error">Assessment not found or not assigned to you.</div>';
+      return;
+    }
+    
+    const isCompleted = ca.attempt && ca.attempt.status === 'Completed';
+    if (isCompleted) {
+      document.getElementById('c-content').innerHTML = `
+        <div class="alert alert-info">This assessment has already been submitted.</div>
+        <a href="#/portal" class="btn btn-primary mt-12">← Back to Portal</a>`;
+      return;
+    }
 
-  if (!assessment || questions.length === 0) {
-    document.getElementById('c-content').innerHTML = '<div class="alert alert-error">Assessment data not found. Please contact HR.</div>';
-    return;
-  }
+    // 2. Fetch assessment details and questions
+    const assessmentData = await API.get(`/assessments/${ca.assessmentId}`);
+    if (!assessmentData || !assessmentData.questions || assessmentData.questions.length === 0) {
+      document.getElementById('c-content').innerHTML = '<div class="alert alert-error">Assessment data not found. Please contact HR.</div>';
+      return;
+    }
 
-  // Mark start time if first open
-  if (!ca.startedAt) {
-    DB.update(DB.TABLES.CANDIDATE_ASSESSMENTS, caId, { startedAt: new Date().toISOString() });
-    ca.startedAt = new Date().toISOString();
-  }
+    // Map to frontend expected structure
+    const assessment = {
+      id: assessmentData.id,
+      title: assessmentData.title,
+      duration: parseInt(assessmentData.duration, 10),
+      passingScore: parseFloat(assessmentData.passingScore)
+    };
 
-  // Calculate remaining time
-  const elapsed  = Math.floor((Date.now() - new Date(ca.startedAt).getTime()) / 1000);
-  const total    = assessment.duration * 60;
-  const timeLeft = Math.max(0, total - elapsed);
+    const questions = assessmentData.questions.map(q => ({
+      id: q.id,
+      questionText: q.question_text,
+      questionType: q.question_type,
+      order: q.order,
+      options: (q.options || []).map(opt => ({
+        id: opt.id,
+        text: opt.text,
+        scoreValue: opt.scoreValue
+      }))
+    })).sort((a,b) => (a.order||0) - (b.order||0));
+
+    // 3. Start/resume the attempt via API (idempotent — returns existing In Progress attempt if one exists)
+    const attemptSession = sessionStorage.getItem('pa_ta_attempt_' + caId);
+    let attemptId;
+
+    if (attemptSession) {
+      // Reuse the attempt ID from this browser session
+      attemptId = attemptSession;
+    } else {
+      let startResult;
+      try {
+        startResult = await API.post(`/assessments/${caId}/start`, {});
+      } catch (err) {
+        document.getElementById('c-content').innerHTML = '<div class="alert alert-error">Failed to start assessment. Please try again.</div>';
+        return;
+      }
+      attemptId = startResult.attemptId;
+      sessionStorage.setItem('pa_ta_attempt_' + caId, attemptId);
+      ca.startedAt = startResult.startedAt;
+    }
+
+    if (!ca.startedAt) ca.startedAt = new Date().toISOString();
+
+    // Calculate remaining time
+    const elapsed  = Math.floor((Date.now() - new Date(ca.startedAt).getTime()) / 1000);
+    const total    = assessment.duration * 60;
+    const timeLeft = Math.max(0, total - elapsed);
+    const attemptIdFinal = attemptId;
 
   // Restore saved answers from sessionStorage
   const savedAnswers = (() => {
@@ -68,6 +108,7 @@ function renderTakeAssessment(caId, user) {
   // Set module state
   _ta = {
     caId, ca, assessment, questions,
+    attemptId: attemptIdFinal,
     answers:  savedAnswers,
     current:  0,
     timerInterval: null,
@@ -75,14 +116,18 @@ function renderTakeAssessment(caId, user) {
     submitted: false
   };
 
-  // Auto-submit if time already up
-  if (timeLeft <= 0) {
-    submitAssessment();
-    return;
-  }
+    // Auto-submit if time already up
+    if (timeLeft <= 0) {
+      submitAssessment();
+      return;
+    }
 
-  renderAssessmentUI();
-  startTimer();
+    renderAssessmentUI();
+    startTimer();
+  } catch (err) {
+    console.error('[TakeAssessment] Load error:', err);
+    document.getElementById('c-content').innerHTML = '<div class="alert alert-error">Failed to load assessment. Please try again.</div>';
+  }
 }
 
 // ── UI Rendering ──────────────────────────────────────────────────────────────
@@ -136,6 +181,7 @@ function renderQuestionCard(q, idx) {
     return `
       <li class="option-item ${isSelected ? 'selected' : ''}"
           data-qid="${q.id}"
+          data-oid="${opt.id}"
           data-text="${Utils.esc(opt.text)}"
           data-score="${opt.scoreValue}"
           onclick="handleOptionClick(this)">
@@ -158,17 +204,18 @@ function renderQuestionCard(q, idx) {
 /** Called via data-attribute driven click — avoids inline quote issues */
 function handleOptionClick(el) {
   const questionId = el.dataset.qid;
+  const optionId   = el.dataset.oid;
   const text       = el.dataset.text;
   const scoreValue = Number(el.dataset.score);
-  selectOption(questionId, text, scoreValue, el);
+  selectOption(questionId, optionId, text, scoreValue, el);
 }
 
-function selectOption(questionId, text, scoreValue, el) {
-  // Save answer
+async function selectOption(questionId, optionId, text, scoreValue, el) {
+  // Save answer locally (temporary session state)
   _ta.answers[questionId] = { selectedAnswer: text, scoreAwarded: scoreValue };
   sessionStorage.setItem(TA_STORAGE_KEY + _ta.caId, JSON.stringify(_ta.answers));
 
-  // Update UI selection
+  // Update UI selection immediately for responsiveness
   const card = document.getElementById('question-card');
   card.querySelectorAll('.option-item').forEach(li => li.classList.remove('selected'));
   el.classList.add('selected');
@@ -177,6 +224,24 @@ function selectOption(questionId, text, scoreValue, el) {
   // Update answer count
   const countEl = document.querySelector('.nav-buttons .text-muted');
   if (countEl) countEl.textContent = `${Object.keys(_ta.answers).length} of ${_ta.questions.length} answered`;
+
+  // Sync with API
+  const attemptId = _ta.attemptId;
+  if (!attemptId) {
+    console.warn('[TakeAssessment] No attempt ID found in state.');
+    return;
+  }
+
+  try {
+    await API.post(`/assessments/${attemptId}/responses`, {
+      questionId: questionId,
+      optionId: optionId
+    });
+  } catch (err) {
+    console.error('[TakeAssessment] Failed to save response via API:', err);
+    // Not inventing a large new error UI, just a simple alert if appropriate, or console.
+    alert('Failed to save answer to server. Please try again or check your connection.');
+  }
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────────
