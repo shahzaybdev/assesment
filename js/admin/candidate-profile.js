@@ -3,15 +3,34 @@
  * Shows candidate info, recruitment status control, resume, assessment history,
  * and assessment assignment.
  */
-function renderCandidateProfile(candidateId) {
-  const c = DB.getById(DB.TABLES.CANDIDATES, candidateId);
+async function renderCandidateProfile(candidateId) {
+  let c = DB.getById(DB.TABLES.CANDIDATES, candidateId);
+  if (!c) {
+    try {
+      c = await API.get(`/candidates/${encodeURIComponent(candidateId)}`);
+    } catch (err) {
+      console.error('Failed to load candidate from API:', err);
+    }
+  }
   if (!c) {
     document.getElementById('content').innerHTML = `<div class="alert alert-error">Candidate not found.</div>`;
     return;
   }
 
-  const allCAs      = DB.getWhere(DB.TABLES.CANDIDATE_ASSESSMENTS, ca => ca.candidateId === candidateId);
-  const assessments = DB.get(DB.TABLES.ASSESSMENTS);
+  let allCAs = [];
+  try {
+    allCAs = await API.get(`/candidates/${encodeURIComponent(candidateId)}/assessments`);
+  } catch (err) {
+    console.error('Failed to load assessments from API:', err);
+  }
+
+  let assessments = [];
+  try {
+    assessments = await API.get('/assessments');
+  } catch (err) {
+    console.error('Failed to load assessments list from API:', err);
+  }
+
   const questions   = DB.get(DB.TABLES.QUESTIONS);
   const responses   = DB.get(DB.TABLES.RESPONSES);
 
@@ -20,30 +39,48 @@ function renderCandidateProfile(candidateId) {
     .sort((a, b) => new Date(a.assignedAt || 0) - new Date(b.assignedAt || 0))
     .map(ca => {
       const assessment = assessments.find(a => a.id === ca.assessmentId);
-      const caResponses = responses.filter(r => r.candidateAssessmentId === ca.id);
-      const caQuestions = questions.filter(q => q.assessmentId === ca.assessmentId);
-      const maxPts = Utils.maxScore(caQuestions);
+      const attempt = ca.attempt;
+
+      const isCompleted = ca.status === 'Completed' || attempt?.status === 'Completed';
+      const numericScore = isCompleted && attempt?.score != null ? parseFloat(attempt.score) : null;
+      const passingPct = ca.passingPercentage != null ? parseFloat(ca.passingPercentage) : null;
+      const passFail = isCompleted && numericScore != null && passingPct != null
+        ? (numericScore >= passingPct ? 'Pass' : 'Fail')
+        : null;
+
+      let statusText = 'Assigned';
+      if (ca.status === 'Completed' || attempt?.status === 'Completed') {
+        statusText = 'Completed';
+      } else if (attempt?.status === 'In Progress') {
+        statusText = 'In Progress';
+      } else if (ca.status === 'Expired') {
+        statusText = 'Expired';
+      }
+
+      const score = numericScore != null ? `${numericScore}%` : '—';
+      const timeTaken = attempt?.timeTakenSeconds != null ? Utils.formatDuration(attempt.timeTakenSeconds) : '—';
+      const completedAt = attempt?.submittedAt ? Utils.formatDateTime(attempt.submittedAt) : '—';
+      const assignedAt = ca.assignedAt ? Utils.formatDate(ca.assignedAt) : '—';
 
       return `
         <tr>
-          <td>${Utils.esc(assessment?.title || 'Unknown Assessment')}</td>
-          <td>${Utils.completionBadge(ca.completed)}</td>
-          <td>${ca.totalScore != null ? ca.totalScore + '%' : '—'}</td>
-          <td>${Utils.passFailBadge(ca.passFail)}</td>
-          <td>${ca.completionTime ? Utils.formatDuration(ca.completionTime) : '—'}</td>
-          <td>${ca.completedAt ? Utils.formatDateTime(ca.completedAt) : '—'}</td>
-          <td>${Utils.formatDate(ca.assignedAt)}</td>
+          <td>${Utils.esc(assessment?.title || ca.title || 'Unknown Assessment')}</td>
+          <td>${Utils.esc(statusText)}</td>
+          <td>${score}</td>
+          <td>${passFail ? Utils.passFailBadge(passFail) : '—'}</td>
+          <td>${timeTaken}</td>
+          <td>${completedAt}</td>
+          <td>${assignedAt}</td>
           <td>
-            ${ca.completed
-              ? `<button class="btn btn-sm btn-outline" onclick="showResponses('${ca.id}')">View Responses</button>`
-              : `<button class="btn btn-sm btn-danger" onclick="unassignAssessment('${ca.id}','${candidateId}')">Unassign</button>`}
+            ${statusText === 'Completed'
+              ? `<button class="btn btn-sm btn-outline" onclick="showResponses('${ca.invitationId}')">View Responses</button>`
+              : `<button class="btn btn-sm btn-danger" onclick="unassignAssessment('${ca.assessmentId}','${candidateId}')">Unassign</button>`}
           </td>
         </tr>`;
     }).join('');
 
-  // Assessments available to assign (not yet assigned to this candidate)
-  const assignedIds  = allCAs.map(ca => ca.assessmentId);
-  const available    = assessments.filter(a => a.status === 'Active' && !assignedIds.includes(a.id));
+  // Assessments available to assign (show all active assessments)
+  const available = assessments.filter(a => a.status === 'Active');
 
   const recruitStatuses = ['Applied','Assessment Assigned','Assessment Completed','Interview','Selected','Rejected'];
 
@@ -55,17 +92,17 @@ function renderCandidateProfile(candidateId) {
 
     <div id="profile-msg"></div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div class="grid-2">
       <!-- Info -->
       <div class="card">
         <div class="card-title">Personal Information</div>
-        <table style="border:none;">
+        <table class="table-flush">
           <tbody>
-            <tr><td style="padding:6px 0;color:#6b7280;width:140px;">Name</td><td><strong>${Utils.esc(c.name)}</strong></td></tr>
-            <tr><td style="padding:6px 0;color:#6b7280;">Email</td><td>${Utils.esc(c.email)}</td></tr>
-            <tr><td style="padding:6px 0;color:#6b7280;">Applied</td><td>${Utils.formatDate(c.appliedAt)}</td></tr>
+            <tr><td class="table-label">Name</td><td><strong>${Utils.esc(c.name)}</strong></td></tr>
+            <tr><td class="table-label">Email</td><td>${Utils.esc(c.email)}</td></tr>
+            <tr><td class="table-label">Applied</td><td>${Utils.formatDate(c.appliedAt)}</td></tr>
             <tr>
-              <td style="padding:6px 0;color:#6b7280;">Resume</td>
+              <td class="table-label">Resume</td>
               <td>
                 ${c.resumeUrl
                   ? `<a href="${c.resumeUrl}" target="_blank" class="btn btn-sm btn-outline" download="${Utils.esc(c.resumeName||'resume')}">
@@ -89,13 +126,13 @@ function renderCandidateProfile(candidateId) {
         </div>
         <button class="btn btn-primary" onclick="updateRecruitStatus('${candidateId}')">Update Status</button>
 
-        <hr style="margin:16px 0;border:none;border-top:1px solid #e5e7eb;">
+        <hr class="divider-hr">
 
         <div class="card-title">Assign Assessment</div>
         ${available.length === 0
           ? '<p class="text-muted">All active assessments are already assigned, or none exist.</p>'
           : `<div class="flex gap-8">
-               <select id="assign-select" style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;">
+               <select id="assign-select" class="form-control form-control-sm" style="flex:1">
                  <option value="">Select assessment…</option>
                  ${available.map(a => `<option value="${a.id}">${Utils.esc(a.title)}</option>`).join('')}
                </select>
@@ -133,41 +170,75 @@ function renderCandidateProfile(candidateId) {
   `;
 }
 
-function updateRecruitStatus(candidateId) {
+async function updateRecruitStatus(candidateId) {
   const status = document.getElementById('recruit-status').value;
-  DB.update(DB.TABLES.CANDIDATES, candidateId, { recruitmentStatus: status });
-  Utils.showMsg('profile-msg', 'Recruitment status updated.', 'success');
+
+  try {
+    await API.patch(`/candidates/${encodeURIComponent(candidateId)}/recruitment-status`, { status });
+    Utils.showMsg('profile-msg', 'Recruitment status updated.', 'success');
+  } catch (err) {
+    console.error('Failed to update recruitment status:', err);
+    Utils.showMsg('profile-msg', 'Failed to update status: ' + (err.message || 'Server error'), 'error');
+    return;
+  }
+
+  if (apiCandidates) {
+    const idx = apiCandidates.findIndex(c => c.id === candidateId);
+    if (idx !== -1) {
+      apiCandidates[idx].recruitmentStatus = status;
+    }
+  }
+
+  renderDashboardTable();
 }
 
-function assignAssessment(candidateId) {
+async function assignAssessment(candidateId) {
   const assessmentId = document.getElementById('assign-select')?.value;
   if (!assessmentId) return Utils.showMsg('profile-msg', 'Please select an assessment.', 'error');
 
-  DB.insert(DB.TABLES.CANDIDATE_ASSESSMENTS, {
-    candidateId, assessmentId,
-    totalScore: null, passFail: null,
-    completed: false, completionTime: null, completedAt: null, startedAt: null,
-    assignedAt: new Date().toISOString()
-  });
-
-  // Update recruitment status if still at 'Applied'
-  const candidate = DB.getById(DB.TABLES.CANDIDATES, candidateId);
-  if (candidate && candidate.recruitmentStatus === 'Applied') {
-    DB.update(DB.TABLES.CANDIDATES, candidateId, { recruitmentStatus: 'Assessment Assigned' });
+  try {
+    await API.post(`/candidates/${encodeURIComponent(candidateId)}/assessments`, { assessmentId });
+    Utils.showMsg('profile-msg', 'Assessment assigned successfully.', 'success');
+  } catch (err) {
+    console.error('Failed to assign assessment:', err);
+    Utils.showMsg('profile-msg', 'Failed to assign assessment: ' + (err.message || 'Server error'), 'error');
+    return;
   }
 
-  Utils.showMsg('profile-msg', 'Assessment assigned successfully.', 'success');
-  renderCandidateProfile(candidateId);
+  if (apiCandidates) {
+    try {
+      apiAssessments[candidateId] = await API.get(`/candidates/${encodeURIComponent(candidateId)}/assessments`);
+    } catch (e) {
+      apiAssessments[candidateId] = [];
+    }
+  }
+
+  await renderCandidateProfile(candidateId);
 }
 
-function unassignAssessment(caId, candidateId) {
+async function unassignAssessment(assessmentId, candidateId) {
   if (!Utils.confirm('Remove this assessment assignment?')) return;
-  DB.delete(DB.TABLES.CANDIDATE_ASSESSMENTS, caId);
-  renderCandidateProfile(candidateId);
+  const allCAs = DB.getWhere(DB.TABLES.CANDIDATE_ASSESSMENTS, ca => ca.candidateId === candidateId && ca.assessmentId === assessmentId);
+  allCAs.forEach(ca => DB.delete(DB.TABLES.CANDIDATE_ASSESSMENTS, ca.id));
+  await renderCandidateProfile(candidateId);
 }
 
 function showResponses(caId) {
-  const ca          = DB.getById(DB.TABLES.CANDIDATE_ASSESSMENTS, caId);
+  const ca = DB.getById(DB.TABLES.CANDIDATE_ASSESSMENTS, caId);
+  if (!ca) {
+    document.getElementById('responses-modal').innerHTML = `
+      <div class="modal-overlay" onclick="this.remove()">
+        <div class="modal-box" onclick="event.stopPropagation()">
+          <div class="modal-header">
+            <h3>Responses</h3>
+            <button class="modal-close" onclick="document.querySelector('.modal-overlay').remove()">✕</button>
+          </div>
+          <p class="text-muted">Response details are not available for this assessment in the current view.</p>
+        </div>
+      </div>`;
+    return;
+  }
+
   const assessment  = DB.getById(DB.TABLES.ASSESSMENTS, ca.assessmentId);
   const questions   = DB.getWhere(DB.TABLES.QUESTIONS, q => q.assessmentId === ca.assessmentId)
                         .sort((a,b) => (a.order||0)-(b.order||0));

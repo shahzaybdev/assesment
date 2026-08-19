@@ -32,7 +32,7 @@ const router = express.Router();
 router.post('/login', async (req, res) => {
     try {
         const email = String(req.body.email || '').trim().toLowerCase();
-        const password = String(req.body.password || '');
+        const password = String(req.body.password || '').trim();
 
         if (!email || !password) {
             return res.status(400).json({

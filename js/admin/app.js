@@ -8,7 +8,7 @@ function initAdminApp() {
 
   document.getElementById('admin-user-name').textContent = user.name;
 
-  function route() {
+  async function route() {
     const hash  = location.hash || '#/dashboard';
     const parts = hash.replace(/^#\//, '').split('/');
     const page  = parts[0] || 'dashboard';
@@ -22,19 +22,19 @@ function initAdminApp() {
 
     switch (page) {
       case 'dashboard':
-        renderDashboard();
+        await renderDashboard();
         break;
       case 'assessments':
         if (sub1 === 'new')          renderAssessmentForm(null);
         else if (sub1 === 'edit')    renderAssessmentForm(sub2);
-        else                         renderAssessments();
+        else                         await renderAssessments();
         break;
       case 'candidates':
-        if (sub1)                    renderCandidateProfile(sub1);
-        else                         renderDashboard(); // fallback
+        if (sub1)                    await renderCandidateProfile(sub1);
+        else                         await renderDashboard();
         break;
       default:
-        renderDashboard();
+        await renderDashboard();
     }
   }
 

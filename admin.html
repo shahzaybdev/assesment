@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HR Admin — Career Portal</title>
+  <title>PBL Portal — HR Admin</title>
   <meta name="description" content="HR Admin panel for managing assessments and candidates.">
   <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -13,7 +13,10 @@
   <!-- ── Sidebar ── -->
   <aside class="sidebar">
     <div class="sidebar-logo">
-      <h2>🏢 Career Portal</h2>
+      <div class="sidebar-logo-img">
+        <img src="pbl-logo.png" alt="PBL Portal Logo" class="logo-img">
+      </div>
+      <h2>PBL Portal</h2>
       <p>HR Admin Panel</p>
     </div>
     <div class="sidebar-user">
@@ -21,18 +24,21 @@
       HR Administrator
     </div>
     <nav>
-      <a href="#/dashboard"   data-page="dashboard">📊 Dashboard</a>
-      <a href="#/assessments" data-page="assessments">📋 Assessments</a>
+      <a href="#/dashboard"   data-page="dashboard">Dashboard</a>
+      <a href="#/assessments" data-page="assessments">Assessments</a>
     </nav>
     <div class="sidebar-bottom">
-      <button class="btn btn-outline w-full" onclick="Auth.logout()" style="font-size:13px;">Logout</button>
+      <button class="btn btn-outline w-full" onclick="Auth.logout()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </button>
     </div>
   </aside>
 
   <!-- ── Main Content ── -->
   <main class="main-content">
     <div id="content">
-      <div class="flex-center" style="height:60vh;color:#9ca3af;">Loading…</div>
+      <div class="flex-center loading-state">Loading…</div>
     </div>
   </main>
 </div>
@@ -43,6 +49,7 @@
 <script src="js/auth.js"></script>
 <script src="js/utils.js"></script>
 <script src="js/seed.js"></script>
+<script src="js/api.js"></script>
 
 <!-- Admin page scripts -->
 <script src="js/admin/dashboard.js"></script>

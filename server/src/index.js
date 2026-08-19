@@ -40,6 +40,7 @@ const healthRouter = require('./routes/health');
 const assessmentsRouter = require('./routes/assessments');
 const questionsRouter = require('./routes/questions');
 const candidatesRouter = require('./routes/candidates');
+const dashboardRouter = require('./routes/dashboard');
 // - Rout by GPT 
 const authRoutes = require('./routes/auth');
 
@@ -52,6 +53,9 @@ app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
 // Parse JSON request bodies
 app.use(express.json());
 
+// Serve uploaded resumes statically
+app.use('/uploads', express.static('uploads'));
+
 // Request logger (simple, no external dependency)
 app.use((req, _res, next) => {
   console.log(`[HTTP] ${req.method} ${req.url}`);
@@ -63,6 +67,7 @@ app.use('/api/health', healthRouter);
 app.use('/api/assessments', assessmentsRouter);
 app.use('/api/questions', questionsRouter);
 app.use('/api/candidates', candidatesRouter);
+app.use('/api/dashboard', dashboardRouter);
 // - Rout by GPT 
 app.use('/api/auth', authRoutes);
 

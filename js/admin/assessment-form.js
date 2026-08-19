@@ -57,28 +57,28 @@ function renderAssessmentForm(assessmentId) {
     </div>
 
     <!-- Question Builder -->
-    <div class="card">
-      <div class="flex-between mb-12">
-        <div class="card-title" style="margin:0">Questions</div>
-        <div class="flex gap-8">
-          <button class="btn btn-outline btn-sm" onclick="addQuestion('multiple_choice')">+ Multiple Choice</button>
-          <button class="btn btn-outline btn-sm" onclick="addQuestion('likert')">+ Likert Scale</button>
+      <div class="card">
+        <div class="flex-between mb-12">
+          <div class="card-title card-title-flush">Questions</div>
+          <div class="flex gap-8">
+            <button class="btn btn-outline btn-sm" onclick="addQuestion('multiple_choice')">+ Multiple Choice</button>
+            <button class="btn btn-outline btn-sm" onclick="addQuestion('likert')">+ Likert Scale</button>
+          </div>
+        </div>
+        <div id="question-builder"></div>
+        <div id="no-questions" class="empty-state hidden">
+          No questions yet. Add a Multiple Choice or Likert Scale question above.
         </div>
       </div>
-      <div id="question-builder"></div>
-      <div id="no-questions" class="empty-state" style="${_formQuestions.length ? 'display:none' : ''}">
-        No questions yet. Add a Multiple Choice or Likert Scale question above.
-      </div>
-    </div>
 
-    <div class="flex gap-8">
-      <button class="btn btn-primary" onclick="saveAssessmentForm('${assessmentId || ''}')">
-        ${isEdit ? 'Save Changes' : 'Create Assessment'}
-      </button>
-      <a href="#/assessments" class="btn btn-secondary">Cancel</a>
-    </div>
-    <div style="height:40px"></div>
-  `;
+      <div class="flex gap-8">
+        <button class="btn btn-primary" onclick="saveAssessmentForm('${assessmentId || ''}')">
+          ${isEdit ? 'Save Changes' : 'Create Assessment'}
+        </button>
+        <a href="#/assessments" class="btn btn-secondary">Cancel</a>
+      </div>
+      <div class="spacer"></div>
+    `;
 
   renderQuestionBuilder();
 }
@@ -147,13 +147,13 @@ function renderQuestionItem(q, idx) {
         Fixed options: <strong>Strongly Agree (5) → Agree (4) → Neutral (3) → Disagree (2) → Strongly Disagree (1)</strong><br>
         <small>Max score for this question:</small>
         <input type="number" value="${q.scoreValue}" min="1" max="100"
-          style="width:60px;margin-left:6px;padding:2px 6px;border:1px solid #93c5fd;border-radius:3px;font-size:12px;"
+          class="form-control form-control-sm score-input"
           onchange="updateQScoreValue('${q._key}', this.value)">
        </div>`
     : `<div>
-        <div style="display:grid;grid-template-columns:1fr 80px 30px;gap:6px;margin-bottom:4px;">
-          <small style="color:#6b7280;font-weight:600;">Option Text</small>
-          <small style="color:#6b7280;font-weight:600;">Score</small>
+        <div class="option-header-row">
+          <small class="option-label">Option Text</small>
+          <small class="option-label">Score</small>
           <small></small>
         </div>
         ${q.options.map((opt, oi) => `
@@ -163,7 +163,7 @@ function renderQuestionItem(q, idx) {
             <input type="number" value="${opt.scoreValue}" min="0" max="999"
               title="Score awarded if this option is selected"
               onchange="updateOption('${q._key}', ${oi}, 'scoreValue', +this.value)">
-            <button class="btn btn-danger btn-sm" style="padding:3px 8px;" onclick="removeOption('${q._key}', ${oi})"
+            <button class="btn btn-danger btn-sm btn-icon" onclick="removeOption('${q._key}', ${oi})"
               ${q.options.length <= 2 ? 'disabled' : ''}>✕</button>
           </div>`).join('')}
         <button class="btn btn-outline btn-sm mt-8" onclick="addOption('${q._key}')" ${q.options.length >= 8 ? 'disabled' : ''}>
@@ -178,9 +178,9 @@ function renderQuestionItem(q, idx) {
         <span class="q-num">Q${idx+1} — ${typeLabel}</span>
         <button class="btn btn-danger btn-sm" onclick="removeQuestion('${q._key}')">Remove</button>
       </div>
-      <div class="form-group" style="margin-bottom:10px;">
+      <div class="form-group form-group-sm">
         <label>Question Text *</label>
-        <textarea rows="2" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;resize:vertical;"
+        <textarea rows="2" class="form-control form-control-sm"
           placeholder="Enter your question…"
           onchange="updateQText('${q._key}', this.value)">${Utils.esc(q.questionText)}</textarea>
       </div>
@@ -260,31 +260,37 @@ function saveAssessmentForm(assessmentId) {
   const isEdit = !!assessmentId;
 
   if (isEdit) {
-    // Update assessment
+    // Edit still uses localStorage (API edit endpoint not yet implemented)
     DB.update(DB.TABLES.ASSESSMENTS, assessmentId, { title, description, duration, passingScore, status });
-    // Delete old questions and re-insert
     DB.getWhere(DB.TABLES.QUESTIONS, q => q.assessmentId === assessmentId)
       .forEach(q => DB.delete(DB.TABLES.QUESTIONS, q.id));
+    _formQuestions.forEach((q, idx) => {
+      DB.insert(DB.TABLES.QUESTIONS, {
+        assessmentId, order: idx + 1,
+        questionText: q.questionText, questionType: q.questionType,
+        options: q.options, scoreValue: q.scoreValue
+      });
+    });
+    Utils.go('#/assessments');
   } else {
-    // Insert new assessment
-    const rec = DB.insert(DB.TABLES.ASSESSMENTS, {
+    // CREATE — use backend API
+    const payload = {
       title, description, duration, passingScore, status,
-      createdAt: new Date().toISOString()
-    });
-    assessmentId = rec.id;
+      questions: _formQuestions.map(q => ({
+        questionText: q.questionText,
+        questionType: q.questionType,
+        scoreValue:   q.scoreValue,
+        options: q.options.slice(0, 4).map(o => ({ text: o.text, scoreValue: o.scoreValue }))
+      }))
+    };
+
+    API.post('/assessments', payload)
+      .then(result => {
+        Utils.showMsg('form-msg', `Assessment created! ID: ${result.id}`, 'success');
+        setTimeout(() => Utils.go('#/assessments'), 1200);
+      })
+      .catch(err => {
+        Utils.showMsg('form-msg', 'Failed to create assessment: ' + (err.message || 'Server error'), 'error');
+      });
   }
-
-  // Insert questions
-  _formQuestions.forEach((q, idx) => {
-    DB.insert(DB.TABLES.QUESTIONS, {
-      assessmentId,
-      order: idx + 1,
-      questionText: q.questionText,
-      questionType: q.questionType,
-      options: q.options,
-      scoreValue: q.scoreValue
-    });
-  });
-
-  Utils.go('#/assessments');
 }

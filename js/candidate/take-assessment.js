@@ -139,16 +139,16 @@ function renderAssessmentUI() {
   document.getElementById('c-content').innerHTML = `
     <div class="assessment-container">
       <!-- Header -->
-      <div class="assessment-header">
-        <div class="assessment-title-info">
-          <h3>${Utils.esc(assessment.title)}</h3>
-          <p>Passing score: ${assessment.passingScore}%</p>
+        <div class="assessment-header">
+          <div class="assessment-title-info">
+            <h3>${Utils.esc(assessment.title)}</h3>
+            <p>Passing score: ${assessment.passingScore}%</p>
+          </div>
+          <div class="timer-block">
+            <div id="timer-display" class="timer-display">${Utils.formatTimer(timeLeft)}</div>
+            <div class="text-muted timer-label">Time Remaining</div>
+          </div>
         </div>
-        <div style="text-align:right">
-          <div id="timer-display" class="timer-display">${Utils.formatTimer(timeLeft)}</div>
-          <div class="text-muted" style="font-size:11px;margin-top:2px;">Time Remaining</div>
-        </div>
-      </div>
 
       <!-- Progress -->
       <div class="progress-info">Question ${current + 1} of ${questions.length}</div>
@@ -191,7 +191,7 @@ function renderQuestionCard(q, idx) {
   }).join('');
 
   const typeLabel = q.questionType === 'likert'
-    ? '<span class="badge badge-info" style="margin-bottom:10px;display:inline-block;">Likert Scale</span>'
+    ? '<span class="badge badge-info badge-inline">Likert Scale</span>'
     : '';
 
   return `
@@ -333,78 +333,62 @@ function confirmSubmit() {
   submitAssessment(false);
 }
 
-function submitAssessment(timedOut = false) {
+async function submitAssessment(timedOut = false) {
   if (_ta.submitted) return;
   _ta.submitted = true;
 
   // Stop timer
   clearInterval(_ta.timerInterval);
 
-  const { caId, ca, assessment, questions, answers } = _ta;
-
-  // ── Calculate score ────────────────────────────────────────────────────────
-  const maxPts = Utils.maxScore(questions);
-  const rawPts = questions.reduce((sum, q) => sum + (answers[q.id]?.scoreAwarded || 0), 0);
-  const percentage = Utils.calcPercentage(rawPts, maxPts);
-  const passFail   = percentage >= assessment.passingScore ? 'Pass' : 'Fail';
-
-  // Completion time in seconds
-  const startedAt     = ca.startedAt || new Date().toISOString();
-  const completionTime = Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000);
-
-  // ── Write Responses ────────────────────────────────────────────────────────
-  questions.forEach(q => {
-    const ans = answers[q.id] || { selectedAnswer: null, scoreAwarded: 0 };
-    DB.insert(DB.TABLES.RESPONSES, {
-      candidateAssessmentId: caId,
-      questionId: q.id,
-      selectedAnswer: ans.selectedAnswer,
-      scoreAwarded: ans.scoreAwarded || 0
-    });
-  });
-
-  // ── Update CandidateAssessment ────────────────────────────────────────────
-  DB.update(DB.TABLES.CANDIDATE_ASSESSMENTS, caId, {
-    totalScore: percentage,
-    passFail,
-    completed: true,
-    completionTime,
-    completedAt: new Date().toISOString()
-  });
-
-  // ── Update Candidate status ───────────────────────────────────────────────
-  const candidate = DB.getById(DB.TABLES.CANDIDATES, ca.candidateId);
-  if (candidate && (candidate.recruitmentStatus === 'Assessment Assigned' || candidate.recruitmentStatus === 'Applied')) {
-    DB.update(DB.TABLES.CANDIDATES, ca.candidateId, { recruitmentStatus: 'Assessment Completed' });
+  const { caId, assessment, attemptId } = _ta;
+  
+  if (!attemptId) {
+    document.getElementById('c-content').innerHTML = '<div class="alert alert-error">No attempt ID found. Please contact support.</div>';
+    return;
   }
 
-  // ── Clear session storage ────────────────────────────────────────────────
-  sessionStorage.removeItem(TA_STORAGE_KEY + caId);
+  try {
+    const result = await API.post(`/assessments/${attemptId}/submit`, { timedOut });
+    
+    // ── Clear session storage ────────────────────────────────────────────────
+    sessionStorage.removeItem(TA_STORAGE_KEY + caId);
 
-  // ── Show result screen ────────────────────────────────────────────────────
-  const icon = passFail === 'Pass' ? '✅' : '❌';
-  const resultClass = passFail === 'Pass' ? 'result-pass' : 'result-fail';
+    // ── Show result screen ────────────────────────────────────────────────────
+    const percentage = result.percentageScore || 0;
+    const rawPts = result.rawScore || 0;
+    const maxPts = result.maxScore || 0;
+    const completionTime = result.timeTaken || 0;
+    const passFail = percentage >= assessment.passingScore ? 'Pass' : 'Fail';
+    
+    const icon = passFail === 'Pass' ? '✅' : '❌';
+    const resultClass = passFail === 'Pass' ? 'result-pass' : 'result-fail';
 
-  document.getElementById('c-content').innerHTML = `
-    <div class="assessment-container">
-      <div class="card text-center" style="padding:40px">
-        ${timedOut ? '<div class="alert alert-warning" style="margin-bottom:20px;">Time is up! Your assessment was auto-submitted.</div>' : ''}
-        <div style="font-size:48px;margin-bottom:12px;">${icon}</div>
-        <h2 style="font-size:22px;font-weight:700;margin-bottom:8px;">Assessment Submitted</h2>
-        <p class="text-muted mb-16">${Utils.esc(assessment.title)}</p>
+    document.getElementById('c-content').innerHTML = `
+      <div class="assessment-container">
+        <div class="card text-center result-card-wrapper">
+          ${timedOut ? '<div class="alert alert-warning" style="margin-bottom:20px;">Time is up! Your assessment was auto-submitted.</div>' : ''}
+          <div class="result-icon">${icon}</div>
+          <h2 class="result-title">Assessment Submitted</h2>
+          <p class="text-muted mb-16">${Utils.esc(assessment.title)}</p>
 
-        <div class="result-card ${resultClass}" style="display:inline-block;padding:24px 48px;margin-bottom:20px;">
-          <div class="result-score">${percentage}%</div>
-          <div class="result-label" style="font-size:16px;font-weight:600;margin-top:6px;">${passFail}</div>
+          <div class="result-card ${resultClass} result-card-inline">
+            <div class="result-score">${percentage}%</div>
+            <div class="result-label result-label-lg">${passFail}</div>
+          </div>
+
+          <div class="result-stats">
+            <div class="result-stat"><div class="result-stat-value">${rawPts}/${maxPts}</div><div class="text-muted">Points</div></div>
+            <div class="result-stat"><div class="result-stat-value">${Utils.formatDuration(completionTime)}</div><div class="text-muted">Time</div></div>
+            <div class="result-stat"><div class="result-stat-value">${assessment.passingScore}%</div><div class="text-muted">Pass Mark</div></div>
+          </div>
+
+          <a href="#/portal" class="btn btn-primary mt-16">← Back to Portal</a>
         </div>
-
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:20px 0;max-width:400px;margin-left:auto;margin-right:auto;">
-          <div><div style="font-size:20px;font-weight:700;">${rawPts}/${maxPts}</div><div class="text-muted">Points</div></div>
-          <div><div style="font-size:20px;font-weight:700;">${Utils.formatDuration(completionTime)}</div><div class="text-muted">Time</div></div>
-          <div><div style="font-size:20px;font-weight:700;">${assessment.passingScore}%</div><div class="text-muted">Pass Mark</div></div>
-        </div>
-
-        <a href="#/portal" class="btn btn-primary">← Back to Portal</a>
-      </div>
-    </div>`;
+      </div>`;
+  } catch (err) {
+    console.error('[TakeAssessment] Error submitting:', err);
+    document.getElementById('c-content').innerHTML = `
+      <div class="alert alert-error">Failed to submit assessment: ${err.message || 'Server error'}</div>
+      <a href="#/portal" class="btn btn-primary mt-12">← Back to Portal</a>`;
+  }
 }

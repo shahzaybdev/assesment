@@ -82,6 +82,7 @@ const Auth = (() => {
    */
   async function login(email, password) {
     const e = (email || '').trim().toLowerCase();
+    const p = (password || '').trim();
 
     const adminEmail = (
       Config.ADMIN_EMAIL || 'admin@company.com'
@@ -93,7 +94,7 @@ const Auth = (() => {
 
     if (
       e === adminEmail &&
-      password === (Config.ADMIN_PASSWORD || 'Admin@123')
+      p === (Config.ADMIN_PASSWORD || 'Admin@123')
     ) {
       _setSession({
         role: 'admin',
@@ -114,48 +115,39 @@ const Auth = (() => {
 
     try {
       const response = await fetch(
-        `http://localhost:3000/api/candidates/by-email/${encodeURIComponent(e)}`
+        'http://localhost:3000/api/auth/login',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: e, password: p })
+        }
       );
 
-      if (response.ok) {
-        const candidate = await response.json();
+      const data = await response.json();
 
-        if (candidate && candidate.id) {
-          _setSession({
-            role: 'candidate',
-            email: candidate.email,
-            name: candidate.name,
-            id: candidate.id,
-            candidateId: candidate.id
-          });
+      if (response.ok && data.success && data.user) {
+        _setSession({
+          role: data.user.role,
+          email: data.user.email,
+          name: data.user.name,
+          id: data.user.id,
+          candidateId: data.user.candidateId
+        });
 
-          return {
-            success: true,
-            role: 'candidate'
-          };
-        }
-      }
-
-      if (response.status === 404) {
         return {
-          success: false,
-          error: 'Invalid email or password.'
+          success: true,
+          role: data.user.role
         };
       }
 
-      console.error(
-        '[Auth] Candidate API returned status:',
-        response.status
-      );
-
       return {
         success: false,
-        error: 'Unable to verify candidate account.'
+        error: data.error || 'Invalid email or password.'
       };
 
     } catch (err) {
       console.error(
-        '[Auth] Candidate lookup failed:',
+        '[Auth] Candidate login failed:',
         err
       );
 

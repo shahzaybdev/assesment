@@ -4,6 +4,7 @@
 .env
 .env.local
 .env.*.local
+server/.env
 
 # ──────────────────────────────────────────────
 # Node.js
@@ -11,6 +12,20 @@
 node_modules/
 npm-debug.log*
 yarn-error.log*
+server/node_modules/
+
+# ──────────────────────────────────────────────
+# Server diagnostics / scratch (local only)
+# ──────────────────────────────────────────────
+server/scratch/
+server/uploads/
+server/check-*.js
+server/test-*.js
+server/verify-*.js
+server/inspect-*.js
+server/find-*.js
+server/alter-*.js
+server/cleanup.js
 
 # ──────────────────────────────────────────────
 # OS / editor
